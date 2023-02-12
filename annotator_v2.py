@@ -181,10 +181,73 @@ class Annotator(PyQt5.QtWidgets.QWidget):
         annotator.annotationsFilename = 'from_grayscale_annotations.png'
         return annotator    
     @classmethod
+    def fromFolder(cls, folder_name, net_name, instant_seg = False, negative_skeleton = False,
+                resize_size = 128, url = None):
+        file_list = glob.glob(os.path.join(folder_name,"*.png"))+glob.glob(os.path.join(folder_name,"*.jpg"))
+        # random.shuffle(file_list)
+        file_list.sort()
+        im_name = file_list.pop(0)
+        im = np.array(Image.open(im_name))
+        
+        if im.ndim==2:
+            gray = im.copy() # check whether needed
+            
+            bytesPerLine = gray.nbytes//gray.shape[0]
+            qimage = PyQt5.QtGui.QImage(gray.data, gray.shape[1], gray.shape[0],
+                                        bytesPerLine,
+                                        PyQt5.QtGui.QImage.Format_Grayscale8)
+            imagePix = PyQt5.QtGui.QPixmap(qimage)
+        else:
+            b,g,r = im[:,:,0], im[:,:,1], im[:,:,2]
+            if (b==g).all() and (b==r).all():
+                im1 = b.copy()
+                bytesPerLine = im1.nbytes//im1.shape[0]
+                qimage = PyQt5.QtGui.QImage(im1.data, im1.shape[1], im1.shape[0],
+                                            bytesPerLine,
+                                            PyQt5.QtGui.QImage.Format_Grayscale8)
+            else:
+                im1 = im.copy() # check whether needed
+                # im = np.require(im, np.uint8, 'C')
+                totalBytes = im1.nbytes
+                # divide by the number of rows
+                bytesPerLine = int(totalBytes/im1.shape[0])
+                
+                qimage = PyQt5.QtGui.QImage(im1.data, im1.shape[1], im1.shape[0],bytesPerLine,
+                                            PyQt5.QtGui.QImage.Format_RGB888)
+        
+        imagePix = PyQt5.QtGui.QPixmap(qimage)
+        annotator = Annotator(imagePix.size(), resize_size)
+        annotator.imagePix = imagePix
+        annotator.annotationsFilename = 'test_annotations.png'
+        
+        print("Image:", os.path.basename(im_name))
+        device = "cuda"
+        path = "runs"
+        name = os.path.join(path, net_name+".pt")
+        arg_name = net_name.split('_')[0]
+        args = get_args(name=arg_name)
+        annotator.recon_mode = args.training.recon_mode
+
+        net = AbstractUNet(args).to(device)
+        ckpt = torch.load(name, map_location=lambda storage, loc: storage)
+        net.load_state_dict(ckpt["net"])
+
+        annotator.annotationsFilename = os.path.join("annotations",os.path.basename(im_name).replace('jpg','png'))
+        annotator.orig_im = im
+        annotator.file_list = file_list
+        annotator.net = net
+        annotator.net.eval()
+        annotator.device = device
+        annotator.instant_seg = instant_seg
+        annotator.negative_skeleton = negative_skeleton
+        annotator.url = url
+        return annotator    
+
+    @classmethod
     def fromRGB(cls, im, net_name, instant_seg = False, negative_skeleton = False,
-                resize_size = 128, medical_images = False, url = None):
+                resize_size = 128, url = None):
         '''
-        Initializes an Annotator with an image given as an grayscale array.
+        Initializes an Annotator with an image 
         Parameters
         ----------
         grat : 2D array with dtype uint8.
@@ -215,15 +278,7 @@ class Annotator(PyQt5.QtWidgets.QWidget):
                 qimage = PyQt5.QtGui.QImage(im1.data, im1.shape[1], im1.shape[0],bytesPerLine,
                                             PyQt5.QtGui.QImage.Format_RGB888)
         
-        # im1 = im.copy() # check whether needed
-        # # im = np.require(im, np.uint8, 'C')
-        # # bytesPerLine = im.shape[0]*3
-        # totalBytes = im1.nbytes
-        # # divide by the number of rows
-        # bytesPerLine = int(totalBytes/im1.shape[0])
-        
-        # qimage = PyQt5.QtGui.QImage(im1.data, im1.shape[1], im1.shape[0],bytesPerLine,
-        #                             PyQt5.QtGui.QImage.Format_RGB888)
+
         imagePix = PyQt5.QtGui.QPixmap(qimage)
         annotator = Annotator(imagePix.size(), resize_size)
         annotator.imagePix = imagePix
@@ -231,7 +286,7 @@ class Annotator(PyQt5.QtWidgets.QWidget):
         
         
         device = "cuda"
-        path = "C:/Users/lowes/OneDrive/Skrivebord/DTU/8_semester/General_Interactive_Segmentation/runs"
+        path = "runs"
         name = os.path.join(path, net_name+".pt")
         
         # arg_name = ''.join(filter(lambda x: not x.isdigit(),net_name))
@@ -256,7 +311,6 @@ class Annotator(PyQt5.QtWidgets.QWidget):
         annotator.device = device
         annotator.instant_seg = instant_seg
         annotator.negative_skeleton = negative_skeleton
-        annotator.medical_images = medical_images
         annotator.url = url
         return annotator    
     
@@ -265,12 +319,10 @@ class Annotator(PyQt5.QtWidgets.QWidget):
         '<b>KEYBOARD COMMANDS:</b> <br>' 
         '&nbsp; &nbsp; <b>1</b> to <b>9</b> changes pen label (L) <br>' 
         '&nbsp; &nbsp; <b>0</b> eraser mode <br>' 
-        '&nbsp; &nbsp; <b>&uarr;</b> and <b>&darr;</b> changes pen width (W) <br>' 
-        '&nbsp; &nbsp; <b>Enter</b> predicts mask from skelet <br>' 
+        '&nbsp; &nbsp; <b>Enter</b> save annotation and load new image <br>' 
         '&nbsp; &nbsp; <b>Z</b> undo last pencil brush <br>' 
         '&nbsp; &nbsp; <b>R</b> resets current image <br>' 
-        '&nbsp; &nbsp; <b>I</b> loads a new image into the annotator <br>' 
-        # '&nbsp; &nbsp; <b>S</b> saves annotation <br>' 
+        '&nbsp; &nbsp; <b>I</b> load new image <br>'  
         '&nbsp; &nbsp; <b>H</b> shows this help <br>' 
         '<b>MOUSE DRAG:</b> <br>' 
         '&nbsp; &nbsp; Draws annotation <br>')
@@ -307,12 +359,11 @@ class Annotator(PyQt5.QtWidgets.QWidget):
             im = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         else:
-            if self.medical_images:
-                im_list = glob.glob(os.path.join(path,"CHAOS_Train_Sets/Train_Sets/images","*.png"))
-            else:
-                im_list = glob.glob(os.path.join(path,'benchmark/dataset/img','*.jpg'))
-            im_name = random.choice(im_list)
-            print(os.path.basename(im_name))
+            if not self.file_list:
+                print("No more images, closing window")
+                self.closeEvent(0)
+            im_name = self.file_list.pop()
+            print("Image:", os.path.basename(im_name))
             im = np.array(Image.open(im_name))
         
         if im.ndim==2:
@@ -351,7 +402,7 @@ class Annotator(PyQt5.QtWidgets.QWidget):
         self.masks_pix.fill(self.color_picker(label=0, opacity=0))
         self.size = size
         self.imagePix = imagePix
-        self.annotationsFilename = 'test_annotations.png'
+        self.annotationsFilename = os.path.join("annotations",os.path.basename(im_name).replace('jpg','png'))
         
         self.oldAnn,self.oldResize = [self.annotationPix.copy()], [self.resizePix.copy()]
         
@@ -362,10 +413,6 @@ class Annotator(PyQt5.QtWidgets.QWidget):
         #self.imagePix.width(), self.imagePix.height()) # part of the image being drawn
         #self.offset = PyQt5.QtCore.QPoint(0, 0) # offset between image center and area of interest center
         
-        device = "cuda"
-        path = "C:/Users/lowes/OneDrive/Skrivebord/DTU/8_semester/General_Interactive_Segmentation"
-
-
         self.orig_im = im
         # self.net = net
         # self.net.eval()
@@ -751,11 +798,6 @@ class Annotator(PyQt5.QtWidgets.QWidget):
             self.showInfo(f'Changed overlay to {self.overlays[self.overlay]}')
         elif event.key()==PyQt5.QtCore.Qt.Key_Z: # z
             self.undo()
-            # if not self.zPressed:
-            #     self.showInfo('Zooming enabled')
-            #     self.zPressed = True
-            #     self.cursorPix.fill(self.color_picker(label=0, opacity=0)) # clear (fill with transparent)
-            #     self.update()
         elif event.key()==PyQt5.QtCore.Qt.Key_R: # r
             self.reset_current_image()
         elif event.key()==PyQt5.QtCore.Qt.Key_H: # h        
@@ -765,8 +807,10 @@ class Annotator(PyQt5.QtWidgets.QWidget):
         # elif event.key()==PyQt5.QtCore.Qt.Key_Escape: # escape
         #     self.closeEvent()
         elif event.key()==PyQt5.QtCore.Qt.Key_Return:
-            self.predict()
-            self.showInfo('Predicting mask from skeleton')
+            self.saveOutcome()
+            self.reset_image()
+            self.resetZoom()
+            self.label = 1
             self.update()
         elif event.key()==PyQt5.QtCore.Qt.Key_I:
             self.reset_image()
@@ -790,18 +834,7 @@ class Annotator(PyQt5.QtWidgets.QWidget):
         self.setTitle()
         
     def keyReleaseEvent(self, event):
-        # if event.key()==PyQt5.QtCore.Qt.Key_Z: # z
-        #     if not self.activelyZooming:
-        #         self.drawCursorPoint(self.lastCursorPoint)
-        #         if self.newZoomValues is None:
-        #             self.resetZoom()
-        #         elif self.newZoomValues==0:
-        #             self.showInfo('Zooming canceled')
-        #             self.newZoomValues = None
-        #         else:
-        #             self.executeZoom()                       
-        #         self.update()
-        #     self.zPressed = False
+
         if event.key()==PyQt5.QtCore.Qt.Key_H: # h
             self.hideText()
             self.hPressed = False
@@ -813,8 +846,9 @@ class Annotator(PyQt5.QtWidgets.QWidget):
     #     # should also check: https://github.com/spyder-ide/spyder/wiki/How-to-run-PyQt-applications-within-Spyder
    
     def saveOutcome(self):
-        self.annotationPix.save(self.saveAddress)
-        self.showInfo(f'Saved annotations as {self.saveAddress}')
+        self.masks_pix.save(self.annotationsFilename,'png')
+        print("Saving:", self.annotationsFilename)
+        self.showInfo(f'Saved annotations as {self.annotationsFilename}')
         
     # colors associated with different labels
     colors = [
@@ -845,16 +879,16 @@ class Annotator(PyQt5.QtWidgets.QWidget):
     
     def closeEvent(self,event):
         PyQt5.QtWidgets.QApplication.quit()
+        self.close()
  
     
-def annotate(image, net_name, instant_seg = False, negative_skeleton = False,
-             resize_size = 128, medical_images = False, url = None):
+def annotate(image_path, net_name, instant_seg = False, negative_skeleton = False,
+             resize_size = 128, url = None):
     app = PyQt5.QtWidgets.QApplication([])
-    ex = Annotator.fromRGB(image, net_name, 
+    ex = Annotator.fromFolder(image_path, net_name, 
                            instant_seg = instant_seg,
                            negative_skeleton = negative_skeleton,
                            resize_size = resize_size,
-                           medical_images = medical_images,
                            url = url)
     # ex = Annotator.fromGrayscale(image)
     ex.show()
