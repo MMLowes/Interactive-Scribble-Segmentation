@@ -8,7 +8,9 @@ By drawing scribbles on an image our network will segment the class, which is be
 
 ## Usage 
 To run the annotation tool run the command
-'python demo_Qt.py --path /path/to/images'
-If no path is specified the default is '/images'. In the tool use the mouse to draw, and the network wil segment at each mouse movement. The keyboard shortcuts are:
+```
+python demo_Qt.py --path /path/to/images
+```
+If no path is specified the default is `/images`. In the tool use the mouse to draw, and the network wil segment at each mouse movement. The keyboard shortcuts are:
 
 
